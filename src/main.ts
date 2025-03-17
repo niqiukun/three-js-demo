@@ -18,12 +18,18 @@ const gui = new GUI();
 const configuration = {
   speed: 1,
   scanSpeed: 1,
-  amplitude: 0.5,
+  amplitude: 0.6,
   localAmplitude: 0,
-  handleRecord: setupAudioCapture,
+  handleRecord: () => setupAudioCapture(false),
+  handleRecordSystem: () => setupAudioCapture(true),
 };
 const actions = gui.addFolder('Actions');
-actions.add(configuration, 'handleRecord').name('Toggle Audio Capture');
+actions
+  .add(configuration, 'handleRecord')
+  .name('Toggle Audio Capture (Microphone)');
+actions
+  .add(configuration, 'handleRecordSystem')
+  .name('Toggle Audio Capture (System)');
 const folder = gui.addFolder('Multiplier');
 folder.add(configuration, 'speed', 0, 2).name('Scroll Speed');
 folder.add(configuration, 'scanSpeed', 0, 2).name('Scanline Speed');
@@ -36,9 +42,15 @@ folder
 let analyser: AnalyserNode | undefined;
 let source: MediaStreamAudioSourceNode | undefined;
 let stream: MediaStream | undefined;
-async function setupAudioCapture() {
+async function setupAudioCapture(fromSystem: boolean) {
   if (!analyser) {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    if (!fromSystem) {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } else {
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        audio: true,
+      });
+    }
 
     // Create an Audio Context
     const audioContext = new AudioContext();
@@ -108,8 +120,9 @@ renderer.setAnimationLoop((t: number) => {
         3) *
       configuration.amplitude;
     const localZ =
-      (Math.sin((x - 0.25 + (t * configuration.speed) / 1200) * 8) / 6) *
-      gaussianValue;
+      (Math.sin((x - 0.25 + (t * configuration.speed) / 800) * 10) / 10) *
+        gaussianValue +
+      0.2 * gaussianValue;
 
     pos.setZ(i, z + localZ);
 
