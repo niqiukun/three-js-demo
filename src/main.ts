@@ -106,10 +106,12 @@ renderer.setAnimationLoop((t: number) => {
       ((Math.sin((x + (t * configuration.speed) / 2000) * 3) *
         Math.sin(y * 3)) /
         3) *
-      configuration.amplitude *
-      (1 + gaussianValue);
+      configuration.amplitude;
+    const localZ =
+      (Math.sin((x - 0.25 + (t * configuration.speed) / 1200) * 8) / 6) *
+      gaussianValue;
 
-    pos.setZ(i, z);
+    pos.setZ(i, z + localZ);
 
     const scanlineX = (((t * configuration.scanSpeed) / 1000) % 8) - 4; // -4 to 4
     const distanceToScanline = Math.abs(x - scanlineX);
