@@ -11,7 +11,7 @@ import {
 } from 'three';
 import Stats from 'three/addons/libs/stats.module.js';
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
-import { createGridGeometry, gaussian } from './helper';
+import { createGridGeometry, gaussian, getAudioAmplitude } from './helper';
 import './style.css';
 
 const gui = new GUI();
@@ -20,12 +20,41 @@ const configuration = {
   scanSpeed: 1,
   amplitude: 0.5,
   localAmplitude: 0,
+  handleRecord: setupAudioCapture,
 };
+const actions = gui.addFolder('Actions');
+actions.add(configuration, 'handleRecord').name('Toggle Audio Capture');
 const folder = gui.addFolder('Multiplier');
 folder.add(configuration, 'speed', 0, 2).name('Scroll Speed');
 folder.add(configuration, 'scanSpeed', 0, 2).name('Scanline Speed');
 folder.add(configuration, 'amplitude', 0, 2).name('Amplitude');
-folder.add(configuration, 'localAmplitude', 0, 3).name('Local Amplitude');
+folder
+  .add(configuration, 'localAmplitude', 0, 3)
+  .name('Local Amplitude')
+  .listen();
+
+let analyser: AnalyserNode | undefined;
+let source: MediaStreamAudioSourceNode | undefined;
+let stream: MediaStream | undefined;
+async function setupAudioCapture() {
+  if (!analyser) {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+    // Create an Audio Context
+    const audioContext = new AudioContext();
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 256; // Small FFT size for smooth waveform
+
+    // Create a source from the microphone stream
+    source = audioContext.createMediaStreamSource(stream);
+    source.connect(analyser);
+  } else {
+    stream?.getTracks().forEach((track) => track.stop());
+    source?.disconnect();
+    analyser = undefined;
+    configuration.localAmplitude = 0;
+  }
+}
 
 const scene = new Scene();
 scene.background = new Color('black');
@@ -59,6 +88,12 @@ const renderer = new WebGLRenderer({ antialias: true });
 const stats = new Stats();
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setAnimationLoop((t: number) => {
+  let volume = 0;
+  if (analyser) {
+    volume = getAudioAmplitude(analyser) / 100;
+    configuration.localAmplitude = volume * 3;
+  }
+
   for (let i = 0; i < pos.count; i += 1) {
     const x = pos.getX(i);
     const y = pos.getY(i);
@@ -75,7 +110,6 @@ renderer.setAnimationLoop((t: number) => {
       (1 + gaussianValue);
 
     pos.setZ(i, z);
-    // pos.setZ(i, gaussianValue);
 
     const scanlineX = (((t * configuration.scanSpeed) / 1000) % 8) - 4; // -4 to 4
     const distanceToScanline = Math.abs(x - scanlineX);

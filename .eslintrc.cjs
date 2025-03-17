@@ -39,5 +39,6 @@ module.exports = {
     ],
     'import/no-relative-packages': 'off',
     'arrow-body-style': 'off',
+    'no-use-before-define': 'off',
   },
 };
