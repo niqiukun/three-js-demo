@@ -19,20 +19,25 @@ const scene = new Scene();
 scene.background = new Color('black');
 const fog = new Fog(new Color('black'), 4, 6);
 scene.fog = fog;
+let animationStarted = false;
+let openAnimationStart = 0;
+let scanningStart = performance.now();
 
 const configuration = {
   speed: 1,
-  scanSpeed: 1,
+  scanSpeed: 1.6,
   amplitude: 0.6,
   frequency: 0.4,
   localAmplitude: 0,
   localFrequency: 1.6,
-  cameraX: 0,
-  cameraY: 2,
-  cameraZ: 4,
+  cameraX: 1.16,
+  cameraY: 1.64,
+  cameraZ: 3.6,
   fogNear: 4,
   fogFar: 6,
-  mode: 'Scanning',
+  mode: 'Points',
+  openingDuration: 5,
+  handleOpening: playOpenAnimation,
   handleRecord: () => setupAudioCapture(false),
   handleRecordSystem: () => setupAudioCapture(true),
 };
@@ -81,7 +86,12 @@ function updateCameraPosition() {
 }
 updateCameraPosition();
 
-const geometry = createGridGeometry(6, 4, 120, 80);
+function playOpenAnimation() {
+  openAnimationStart = performance.now();
+  animationStarted = true;
+}
+
+const geometry = createGridGeometry(6, 6, 120, 120);
 const pos = geometry.getAttribute('position');
 
 const points = new Points(
@@ -98,6 +108,11 @@ scene.add(wireframe);
 
 const colors = new Float32Array(geometry.attributes.position.count * 3);
 geometry.setAttribute('color', new BufferAttribute(colors, 3));
+function setColor(i: number, r: number, g: number, b: number) {
+  colors[i * 3] = r;
+  colors[i * 3 + 1] = g;
+  colors[i * 3 + 2] = b;
+}
 
 const renderer = new WebGLRenderer({ antialias: true });
 const stats = new Stats();
@@ -113,12 +128,31 @@ renderer.setAnimationLoop((t: number) => {
     const x = pos.getX(i);
     const y = pos.getY(i);
 
+    if (!animationStarted) {
+      pos.setZ(i, 0);
+      continue;
+    }
+
     const distanceToCenter = Math.sqrt(x ** 2 + y ** 2);
     const gaussianValue =
       gaussian(distanceToCenter, 1, 0, 0.6) * configuration.localAmplitude;
 
     const tSpeed = t * configuration.speed;
-    const amplitude = configuration.amplitude / 6;
+    let amplitude = configuration.amplitude / 6;
+
+    if (openAnimationStart) {
+      const progress = Math.max(
+        0,
+        (t - openAnimationStart - configuration.openingDuration * 0.1 * 1000) /
+          (configuration.openingDuration * 0.2 * 1000)
+      );
+      if (progress >= 1) {
+        openAnimationStart = 0;
+        scanningStart = performance.now();
+      }
+      amplitude *= progress;
+    }
+
     const { frequency } = configuration;
     const z =
       amplitude * Math.sin(2 * Math.PI * frequency * (x + y + tSpeed / 1000)) +
@@ -143,21 +177,25 @@ renderer.setAnimationLoop((t: number) => {
 
     pos.setZ(i, z + localZ);
 
-    if (configuration.mode === 'Scanning') {
-      const scanlineX = (((t * configuration.scanSpeed) / 1000) % 8) - 4; // -4 to 4
+    if (openAnimationStart) {
+      const progress =
+        (t - openAnimationStart) / (configuration.openingDuration * 0.6 * 1000);
+      const openingScanDistance = Math.sqrt(6 ** 2 * 2) * progress;
+      const distanceToOpeningScan = Math.abs(
+        distanceToCenter - openingScanDistance
+      );
+      const opacity = Math.exp(-distanceToOpeningScan * 30) * 255;
+      setColor(i, opacity, opacity, opacity);
+    } else if (configuration.mode === 'Scanning') {
+      const scanlineX =
+        ((((t - scanningStart) * configuration.scanSpeed) / 1000) % 8) - 4; // -4 to 4
       const distanceToScanline = Math.abs(x - scanlineX);
       const opacity = Math.exp(-distanceToScanline * 12) * 255;
-      colors[i * 3] = opacity;
-      colors[i * 3 + 1] = opacity;
-      colors[i * 3 + 2] = opacity;
+      setColor(i, opacity, opacity, opacity);
     } else if (configuration.mode === 'Wireframe') {
-      colors[i * 3] = 255;
-      colors[i * 3 + 1] = 255;
-      colors[i * 3 + 2] = 255;
+      setColor(i, 255, 255, 255);
     } else {
-      colors[i * 3] = 0;
-      colors[i * 3 + 1] = 0;
-      colors[i * 3 + 2] = 0;
+      setColor(i, 0, 0, 0);
     }
   }
   pos.needsUpdate = true;
@@ -168,7 +206,6 @@ renderer.setAnimationLoop((t: number) => {
   stats.end();
 });
 document.body.appendChild(renderer.domElement);
-document.body.appendChild(stats.dom);
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -176,53 +213,81 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-const gui = new GUI();
-const actions = gui.addFolder('Actions');
-actions
-  .add(configuration, 'handleRecord')
-  .name('Toggle Audio Capture (Microphone)');
-actions
-  .add(configuration, 'handleRecordSystem')
-  .name('Toggle Audio Capture (System)');
-const cameraConfig = gui.addFolder('Camera');
-cameraConfig
-  .add(configuration, 'cameraX', -10, 10)
-  .name('X')
-  .onChange(() => updateCameraPosition());
-cameraConfig
-  .add(configuration, 'cameraY', -10, 10)
-  .name('Y')
-  .onChange(() => updateCameraPosition());
-cameraConfig
-  .add(configuration, 'cameraZ', -10, 10)
-  .name('Z')
-  .onChange(() => updateCameraPosition());
-const sceneConfig = gui.addFolder('Scene');
-sceneConfig
-  .add(configuration, 'mode', ['Points', 'Scanning', 'Wireframe'])
-  .name('Mode');
-const movementConfig = gui.addFolder('Movement');
-movementConfig.add(configuration, 'speed', 0, 2).name('Wave Speed');
-movementConfig.add(configuration, 'scanSpeed', 0, 2).name('Scanline Speed');
-movementConfig.add(configuration, 'amplitude', 0, 2).name('Amplitude');
-movementConfig.add(configuration, 'frequency', 0, 1).name('Frequency');
-movementConfig
-  .add(configuration, 'localAmplitude', 0, 3)
-  .name('Local Amplitude')
-  .listen();
-movementConfig
-  .add(configuration, 'localFrequency', 0, 2)
-  .name('Local Frequency');
-const fogConfig = gui.addFolder('Fog');
-fogConfig
-  .add(configuration, 'fogNear', 0, 10)
-  .name('Near')
-  .onChange(() => {
-    fog.near = configuration.fogNear;
-  });
-fogConfig
-  .add(configuration, 'fogFar', 0, 10)
-  .name('Far')
-  .onChange(() => {
-    fog.far = configuration.fogFar;
-  });
+window.onmessage = function handleMessage(e) {
+  if (e.data.message === 'playOpenAnimation') {
+    playOpenAnimation();
+  } else if (e.data.message === 'setMode') {
+    configuration.mode = e.data.payload;
+  } else if (e.data.message === 'setLocalAmplitude') {
+    configuration.localAmplitude = e.data.payload;
+  }
+};
+
+function setupGUI() {
+  document.body.appendChild(stats.dom);
+  const gui = new GUI();
+  const actions = gui.addFolder('Actions');
+  actions.add(configuration, 'handleOpening').name('Play Open Animation');
+  actions
+    .add(configuration, 'handleRecord')
+    .name('Toggle Audio Capture (Microphone)');
+  actions
+    .add(configuration, 'handleRecordSystem')
+    .name('Toggle Audio Capture (System)');
+  const cameraConfig = gui.addFolder('Camera');
+  cameraConfig
+    .add(configuration, 'cameraX', -10, 10)
+    .name('X')
+    .onChange(() => updateCameraPosition());
+  cameraConfig
+    .add(configuration, 'cameraY', -10, 10)
+    .name('Y')
+    .onChange(() => updateCameraPosition());
+  cameraConfig
+    .add(configuration, 'cameraZ', -10, 10)
+    .name('Z')
+    .onChange(() => updateCameraPosition());
+  const sceneConfig = gui.addFolder('Scene');
+  sceneConfig
+    .add(configuration, 'mode', ['Points', 'Scanning', 'Wireframe'])
+    .name('Mode')
+    .onChange(() => {
+      if (configuration.mode === 'Scanning') {
+        scanningStart = performance.now();
+      }
+    });
+  const movementConfig = gui.addFolder('Movement');
+  movementConfig.add(configuration, 'speed', 0, 2).name('Wave Speed');
+  movementConfig.add(configuration, 'scanSpeed', 0, 2).name('Scanline Speed');
+  movementConfig.add(configuration, 'amplitude', 0, 2).name('Amplitude');
+  movementConfig.add(configuration, 'frequency', 0, 1).name('Frequency');
+  movementConfig
+    .add(configuration, 'localAmplitude', 0, 3)
+    .name('Local Amplitude')
+    .listen();
+  movementConfig
+    .add(configuration, 'localFrequency', 0, 2)
+    .name('Local Frequency');
+  const durationConfig = gui.addFolder('Duration');
+  durationConfig
+    .add(configuration, 'openingDuration', 0, 10)
+    .name('Opening Animation');
+  const fogConfig = gui.addFolder('Fog');
+  fogConfig
+    .add(configuration, 'fogNear', 0, 10)
+    .name('Near')
+    .onChange(() => {
+      fog.near = configuration.fogNear;
+    });
+  fogConfig
+    .add(configuration, 'fogFar', 0, 10)
+    .name('Far')
+    .onChange(() => {
+      fog.far = configuration.fogFar;
+    });
+}
+
+const params = new URLSearchParams(window.location.search);
+if (!params.has('hideUI')) {
+  setupGUI();
+}
