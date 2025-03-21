@@ -218,6 +218,9 @@ window.onmessage = function handleMessage(e) {
     playOpenAnimation();
   } else if (e.data.message === 'setMode') {
     configuration.mode = e.data.payload;
+    if (configuration.mode === 'Scanning') {
+      scanningStart = performance.now();
+    }
   } else if (e.data.message === 'setLocalAmplitude') {
     configuration.localAmplitude = e.data.payload;
   }
